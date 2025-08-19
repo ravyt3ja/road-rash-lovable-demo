@@ -785,12 +785,24 @@ const config = {
 
 // Start the game when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, starting game...');
+    
     // Hide loading screen
     const loading = document.getElementById('loading');
     if (loading) {
         loading.classList.add('hidden');
     }
     
+    // Verify game container exists
+    const container = document.getElementById('game-container');
+    if (!container) {
+        console.error('Game container not found!');
+        return;
+    }
+    
+    console.log('Starting Phaser game...');
     // Start the game
     const game = new Phaser.Game(config);
+    
+    console.log('Game created:', game);
 });
