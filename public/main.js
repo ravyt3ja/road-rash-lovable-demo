@@ -25,11 +25,11 @@ class BootScene extends Phaser.Scene {
         roadGraphics.generateTexture('road', 256, 256);
         roadGraphics.destroy();
 
-        // Bike texture
+        // Player bike texture (green rounded rect)
         const bikeGraphics = this.add.graphics();
-        bikeGraphics.fillStyle(0x8a2be2);
-        bikeGraphics.fillRect(0, 0, 30, 50);
-        bikeGraphics.generateTexture('bike_player', 30, 50);
+        bikeGraphics.fillStyle(0x00ff00);
+        bikeGraphics.fillRoundedRect(0, 0, 18, 36, 4);
+        bikeGraphics.generateTexture('bike_player', 18, 36);
         bikeGraphics.destroy();
 
         // Rival bike texture
@@ -38,6 +38,13 @@ class BootScene extends Phaser.Scene {
         rivalGraphics.fillRect(0, 0, 25, 45);
         rivalGraphics.generateTexture('bike_rival', 25, 45);
         rivalGraphics.destroy();
+
+        // Coin texture (gold circle)
+        const coinGraphics = this.add.graphics();
+        coinGraphics.fillStyle(0xffd700);
+        coinGraphics.fillCircle(8, 8, 8);
+        coinGraphics.generateTexture('coin', 16, 16);
+        coinGraphics.destroy();
 
         // Cone texture
         const coneGraphics = this.add.graphics();
@@ -153,6 +160,7 @@ class GameScene extends Phaser.Scene {
         this.friction = 0.1;
         this.distance = 0;
         this.health = 100;
+        this.coins = 0;
         this.isGameOver = false;
         
         // Controls
@@ -182,6 +190,8 @@ class GameScene extends Phaser.Scene {
         this.enemySpawnRate = 120;
         this.obstacleSpawnTimer = 0;
         this.obstacleSpawnRate = 150;
+        this.coinSpawnTimer = 0;
+        this.coinSpawnRate = 120;
         
         // Oil slip effect
         this.isSlipping = false;
@@ -295,7 +305,9 @@ class GameScene extends Phaser.Scene {
         // Player using cached texture
         this.player = this.physics.add.sprite(this.lanes[this.playerLane], height - 80, 'bike_player');
         this.player.setImmovable(true);
-        this.player.body.setSize(30, 50);
+        this.player.body.setSize(18, 36);
+        this.player.body.setCollideWorldBounds(true);
+        this.player.health = 100;
         this.player.setDepth(10); // Ensure player is above background
         
         console.log('Player sprite created:', this.player);
@@ -414,6 +426,19 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial Bold',
             fill: '#00bfff'
         }).setScrollFactor(0);
+        
+        // Coins
+        this.hudElements.coinsLabel = this.add.text(280, 20, 'COINS', {
+            fontSize: '14px',
+            fontFamily: 'Arial',
+            fill: '#ffff00'
+        }).setScrollFactor(0);
+        
+        this.hudElements.coinsValue = this.add.text(280, 40, '0', {
+            fontSize: '20px',
+            fontFamily: 'Arial Bold',
+            fill: '#ffd700'
+        }).setScrollFactor(0);
     }
 
     updateHealthBar() {
@@ -447,12 +472,20 @@ class GameScene extends Phaser.Scene {
             maxSize: 10, 
             runChildUpdate: false 
         });
+        
+        // Object pooling for coins
+        this.coinsGroup = this.physics.add.group({ 
+            defaultKey: 'coin', 
+            maxSize: 8, 
+            runChildUpdate: false 
+        });
     }
 
     setupCollisions() {
         // Single collider registration for performance
         this.physics.add.overlap(this.player, this.rivals, this.handleRivalCollision, null, this);
         this.physics.add.overlap(this.player, this.obstacles, this.handleObstacleCollision, null, this);
+        this.physics.add.overlap(this.player, this.coinsGroup, this.handleCoinCollection, null, this);
     }
 
     spawnEnemy() {
@@ -513,6 +546,31 @@ class GameScene extends Phaser.Scene {
                 obstacle.setSize(36, 18);
                 break;
         }
+    }
+
+    spawnCoin() {
+        // Lazy spawn - cap concurrent entities
+        if (this.coinsGroup.countActive(true) >= 4) return;
+        
+        const coin = this.coinsGroup.get();
+        if (!coin) return;
+        
+        const lane = Phaser.Math.Between(0, 3);
+        const x = this.lanes[lane];
+        const y = -50;
+        
+        coin.enableBody(true, x, y, true, true);
+        coin.setSize(16, 16);
+        coin.body.setVelocityY(this.gameSpeed * 60);
+        coin.setDepth(5);
+    }
+
+    handleCoinCollection(player, coin) {
+        this.coins++;
+        coin.disableBody(true, true);
+        
+        // Visual feedback
+        this.cameras.main.flash(50, 255, 215, 0); // Gold flash
     }
 
     handleRivalCollision(player, rival) {
@@ -586,6 +644,7 @@ class GameScene extends Phaser.Scene {
         // Cache active entities for performance
         this.activeRivals = this.rivals.getChildren().filter(rival => rival.active);
         this.activeObstacles = this.obstacles.getChildren().filter(obstacle => obstacle.active);
+        const activeCoins = this.coinsGroup.getChildren().filter(coin => coin.active);
         
         // Use for loops instead of callbacks for better performance
         for (let i = this.activeRivals.length - 1; i >= 0; i--) {
@@ -610,6 +669,18 @@ class GameScene extends Phaser.Scene {
             }
             
             obstacle.y += this.gameSpeed * 2;
+        }
+        
+        for (let i = activeCoins.length - 1; i >= 0; i--) {
+            const coin = activeCoins[i];
+            
+            // Cull off-screen updates  
+            if (coin.y > 700 || coin.y < -80) {
+                coin.disableBody(true, true);
+                continue;
+            }
+            
+            coin.y += this.gameSpeed * 2;
         }
         
         // Update road lines
@@ -659,6 +730,14 @@ class GameScene extends Phaser.Scene {
                 this.spawnObstacle();
             }
         }
+        
+        // Coin spawning
+        this.coinSpawnTimer++;
+        if (this.coinSpawnTimer >= this.coinSpawnRate) {
+            this.coinSpawnTimer = 0;
+            this.spawnCoin();
+            this.coinSpawnRate = Phaser.Math.Between(90, 180); // Random interval 1.5-3 seconds
+        }
     }
 
     updateHUD() {
@@ -668,6 +747,9 @@ class GameScene extends Phaser.Scene {
         
         // Update distance
         this.hudElements.distanceValue.setText(`${Math.round(this.distance)} km`);
+        
+        // Update coins
+        this.hudElements.coinsValue.setText(`${this.coins}`);
         
         // Update health bar
         this.updateHealthBar();
