@@ -2,6 +2,11 @@
 class BootScene extends Phaser.Scene {
   constructor(){ super('boot'); }
   create(){
+    const killLoader = () => {
+      const n = document.getElementById('loading') || document.querySelector('.loader, .loading, [data-role="loading"]');
+      if (n) n.remove();
+    };
+    killLoader();
     const g = this.add.graphics();
     // road
     g.fillStyle(0x2b2b2b,1).fillRect(0,0,256,256);
@@ -191,6 +196,7 @@ class GameOverScene extends Phaser.Scene{
 const config = {
   type: Phaser.WEBGL,
   width: 360, height: 640, backgroundColor: '#111',
+  parent: 'game',
   render:{ pixelArt:true, antialias:false, roundPixels:true },
   physics:{ default:'arcade', arcade:{ gravity:{y:0}, debug:false, fps:60, useTree:true }},
   scene:[BootScene, TitleScene, GameScene, GameOverScene]
