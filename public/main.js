@@ -3,23 +3,14 @@
  * A high-speed endless road game with melee combat mechanics
  */
 
-class BootScene extends Phaser.Scene {
+class TitleScene extends Phaser.Scene {
     constructor() {
-        super({ key: 'BootScene' });
+        super({ key: 'TitleScene' });
+        this.spacePressed = false;
     }
 
-    preload() {
-        // Hide loading screen once Phaser starts
-        const loading = document.getElementById('loading');
-        if (loading) loading.classList.add('hidden');
-        
-        // Create loading bar using Phaser graphics
-        this.createLoadingBar();
-    }
-
-    createLoadingBar() {
-        const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
+    create() {
+        const { width, height } = this.cameras.main;
         
         // Background
         this.add.rectangle(width / 2, height / 2, width, height, 0x1a1a2e);
@@ -47,7 +38,8 @@ class BootScene extends Phaser.Scene {
             'LEFT/RIGHT - Steer',
             'Z - Punch | X - Kick',
             '',
-            'Press SPACE to Start'
+            'Avoid cones and barricades!',
+            'Oil makes you slip!'
         ];
         
         controls.forEach((text, index) => {
@@ -75,9 +67,12 @@ class BootScene extends Phaser.Scene {
             repeat: -1
         });
         
-        // Input
-        this.input.keyboard.once('keydown-SPACE', () => {
-            this.scene.start('GameScene');
+        // Input - use keydown event to prevent repeated triggers
+        this.input.keyboard.on('keydown-SPACE', () => {
+            if (!this.spacePressed) {
+                this.spacePressed = true;
+                this.scene.start('GameScene');
+            }
         });
     }
 }
@@ -85,10 +80,14 @@ class BootScene extends Phaser.Scene {
 class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
-        
+        this.initializeGameState();
+    }
+
+    initializeGameState() {
         // Game state
         this.player = null;
         this.enemies = [];
+        this.obstacles = null;
         this.gameSpeed = 2;
         this.playerSpeed = 0;
         this.maxSpeed = 12;
@@ -96,6 +95,7 @@ class GameScene extends Phaser.Scene {
         this.friction = 0.1;
         this.distance = 0;
         this.health = 100;
+        this.isGameOver = false;
         
         // Controls
         this.cursors = null;
@@ -113,21 +113,38 @@ class GameScene extends Phaser.Scene {
         this.isAttacking = false;
         this.attackCooldown = 0;
         
-        // Lane changing
+        // Lane changing - use keydown events to prevent continuous triggering
         this.isChangingLane = false;
         this.laneChangeCooldown = 0;
+        this.leftPressed = false;
+        this.rightPressed = false;
         
         // Enemy spawn
         this.enemySpawnTimer = 0;
         this.enemySpawnRate = 120; // frames between spawns
+        
+        // Obstacles
+        this.obstacleSpawnTimer = 0;
+        this.obstacleSpawnRate = 150; // frames between spawns
+        
+        // Oil slip effect
+        this.isSlipping = false;
+        this.slipTimer = 0;
+        this.slipDuration = 48; // 0.8s at 60fps
+        
+        // Road sway
+        this.roadSway = 0;
+        this.maxRoadSway = 50;
     }
 
     create() {
+        console.log('GameScene created');
         this.createWorld();
         this.createPlayer();
         this.createControls();
         this.createHUD();
         this.createEnemyPool();
+        this.createObstaclePool();
         
         // Start game loop
         this.startGameLoop();
@@ -141,10 +158,10 @@ class GameScene extends Phaser.Scene {
         bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1);
         bg.fillRect(0, 0, width, height);
         
-        // Road base
-        const road = this.add.graphics();
-        road.fillStyle(0x2a2a2a);
-        road.fillRect(150, 0, 400, height);
+        // Road base - make it a tilesprite for sway effect
+        this.road = this.add.graphics();
+        this.road.fillStyle(0x2a2a2a);
+        this.road.fillRect(150, 0, 400, height);
         
         // Road lines (lane markers)
         this.roadLines = this.add.group();
@@ -161,13 +178,13 @@ class GameScene extends Phaser.Scene {
         }
         
         // Road edges
-        const leftEdge = this.add.graphics();
-        leftEdge.fillStyle(0xffffff);
-        leftEdge.fillRect(145, 0, 10, height);
+        this.leftEdge = this.add.graphics();
+        this.leftEdge.fillStyle(0xffffff);
+        this.leftEdge.fillRect(145, 0, 10, height);
         
-        const rightEdge = this.add.graphics();
-        rightEdge.fillStyle(0xffffff);
-        rightEdge.fillRect(545, 0, 10, height);
+        this.rightEdge = this.add.graphics();
+        this.rightEdge.fillStyle(0xffffff);
+        this.rightEdge.fillRect(545, 0, 10, height);
         
         // Side decorations
         this.createSideDecorations();
@@ -263,9 +280,49 @@ class GameScene extends Phaser.Scene {
     }
 
     createControls() {
+        // Create cursor keys once in create()
         this.cursors = this.input.keyboard.createCursorKeys();
         this.punchKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
         this.kickKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
+        
+        // Use keydown events for lane changing to prevent continuous triggering
+        this.input.keyboard.on('keydown-LEFT', () => {
+            if (!this.leftPressed && !this.isGameOver) {
+                this.leftPressed = true;
+                this.handleLaneChange(-1);
+            }
+        });
+        
+        this.input.keyboard.on('keyup-LEFT', () => {
+            this.leftPressed = false;
+        });
+        
+        this.input.keyboard.on('keydown-RIGHT', () => {
+            if (!this.rightPressed && !this.isGameOver) {
+                this.rightPressed = true;
+                this.handleLaneChange(1);
+            }
+        });
+        
+        this.input.keyboard.on('keyup-RIGHT', () => {
+            this.rightPressed = false;
+        });
+    }
+
+    handleLaneChange(direction) {
+        console.log('handleLaneChange called with direction:', direction);
+        if (this.isChangingLane || this.laneChangeCooldown > 0) {
+            console.log('Lane change blocked - isChangingLane:', this.isChangingLane, 'cooldown:', this.laneChangeCooldown);
+            return;
+        }
+        
+        const newLane = this.playerLane + direction;
+        if (newLane >= 0 && newLane < 4) {
+            console.log('Valid lane change to:', newLane);
+            this.changeLane(direction);
+        } else {
+            console.log('Invalid lane change attempted');
+        }
     }
 
     createHUD() {
@@ -345,6 +402,71 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    createObstaclePool() {
+        this.obstacles = this.physics.add.group({
+            maxSize: 15,
+            createCallback: (obstacle) => {
+                obstacle.setData('type', 'cone');
+            }
+        });
+    }
+
+    spawnObstacle() {
+        if (this.obstacles.countActive(true) >= 8) return;
+        
+        const obstacle = this.obstacles.get();
+        if (!obstacle) return;
+        
+        // Choose random type
+        const types = ['cone', 'barricade', 'oil'];
+        const type = types[Phaser.Math.Between(0, 2)];
+        
+        // Choose lane, avoiding player's current lane
+        let lane;
+        do {
+            lane = Phaser.Math.Between(0, 3);
+        } while (lane === this.playerLane && Math.random() < 0.7); // 70% chance to avoid player lane
+        
+        const x = this.lanes[lane];
+        const y = -50;
+        
+        obstacle.setActive(true);
+        obstacle.setVisible(true);
+        obstacle.setPosition(x, y);
+        obstacle.setData('type', type);
+        obstacle.body.setVelocityY(this.gameSpeed * 60);
+        
+        // Clear previous graphics
+        obstacle.clear();
+        
+        // Draw based on type
+        switch (type) {
+            case 'cone':
+                // Triangle cone
+                obstacle.fillStyle(0xff8c00);
+                obstacle.fillTriangle(0, -9, -9, 9, 9, 9);
+                obstacle.setSize(18, 18);
+                break;
+                
+            case 'barricade':
+                // Horizontal block
+                obstacle.fillStyle(0xff4444);
+                obstacle.fillRect(-40, -8, 80, 16);
+                obstacle.setSize(80, 16);
+                break;
+                
+            case 'oil':
+                // Dark oval
+                obstacle.fillStyle(0x1a1a1a);
+                obstacle.fillEllipse(0, 0, 36, 18);
+                obstacle.setSize(36, 18);
+                break;
+        }
+        
+        // Set proper hitbox
+        obstacle.body.setOffset(-obstacle.width/2, -obstacle.height/2);
+    }
+
     spawnEnemy() {
         if (this.enemyPool.countActive(true) >= 6) return;
         
@@ -392,13 +514,17 @@ class GameScene extends Phaser.Scene {
     }
 
     updateGame() {
+        if (this.isGameOver) return; // Early return if game is over
+        
         this.handleInput();
         this.updatePlayer();
         this.updateEnemies();
+        this.updateObstacles();
         this.updateWorld();
         this.updateHUD();
         this.handleCollisions();
         this.spawnEnemiesTimer();
+        this.spawnObstaclesTimer();
         
         // Update distance
         this.distance += this.gameSpeed * 0.1;
@@ -417,8 +543,14 @@ class GameScene extends Phaser.Scene {
         if (this.laneChangeCooldown > 0) {
             this.laneChangeCooldown--;
         }
+        if (this.slipTimer > 0) {
+            this.slipTimer--;
+            if (this.slipTimer === 0) {
+                this.isSlipping = false;
+            }
+        }
         
-        // Speed control
+        // Speed control (use isDown for continuous input)
         if (this.cursors.up.isDown) {
             this.playerSpeed = Math.min(this.playerSpeed + this.acceleration, this.maxSpeed);
         } else if (this.cursors.down.isDown) {
@@ -432,14 +564,7 @@ class GameScene extends Phaser.Scene {
             }
         }
         
-        // Steering - only allow lane change if not currently changing and cooldown is over
-        if (this.cursors.left.isDown && this.playerLane > 0 && !this.isChangingLane && this.laneChangeCooldown === 0) {
-            this.changeLane(-1);
-        } else if (this.cursors.right.isDown && this.playerLane < 3 && !this.isChangingLane && this.laneChangeCooldown === 0) {
-            this.changeLane(1);
-        }
-        
-        // Combat
+        // Combat (use isDown for combat keys)
         if ((this.punchKey.isDown || this.kickKey.isDown) && this.attackCooldown === 0) {
             this.performAttack(this.punchKey.isDown ? 'punch' : 'kick');
         }
@@ -447,35 +572,32 @@ class GameScene extends Phaser.Scene {
 
     changeLane(direction) {
         console.log('changeLane called with direction:', direction);
-        console.log('Current playerLane:', this.playerLane);
-        console.log('isChangingLane:', this.isChangingLane);
-        console.log('laneChangeCooldown:', this.laneChangeCooldown);
         
         const newLane = this.playerLane + direction;
         if (newLane >= 0 && newLane < 4) {
             console.log('Valid lane change to:', newLane);
             this.playerLane = newLane;
             this.isChangingLane = true;
-            this.laneChangeCooldown = 15; // frames
+            this.laneChangeCooldown = 30; // Increased cooldown
             const targetX = this.lanes[this.playerLane];
-            console.log('Target X position:', targetX);
             
-            // Stop any existing tweens first
-            this.tweens.killTweensOf(this.player.children.entries);
-            
-            // Move each player component individually instead of using group
+            // Move player components instantly
             this.playerBody.x = targetX;
             this.playerRider.x = targetX;
             this.playerHandlebars.x = targetX;
             this.playerWheels[0].x = targetX;
             this.playerWheels[1].x = targetX;
             
-            // Reset lane changing state immediately since we're not using animation
-            this.isChangingLane = false;
+            // Apply road sway effect
+            this.roadSway += direction * 10;
+            this.roadSway = Phaser.Math.Clamp(this.roadSway, -this.maxRoadSway, this.maxRoadSway);
+            
+            // Reset lane changing state after a short delay
+            this.time.delayedCall(200, () => {
+                this.isChangingLane = false;
+            });
             
             console.log('Lane change completed');
-        } else {
-            console.log('Invalid lane change attempted');
         }
     }
 
@@ -594,6 +716,21 @@ class GameScene extends Phaser.Scene {
         if (this.playerSpeed > 8) {
             this.cameras.main.shake(1, 1);
         }
+        
+        // Apply oil slip effect
+        if (this.isSlipping) {
+            const slipForce = Phaser.Math.Between(-30, 30);
+            this.playerBody.x += slipForce * 0.1;
+            
+            // Keep player within road bounds
+            this.playerBody.x = Phaser.Math.Clamp(this.playerBody.x, 180, 520);
+            
+            // Update other player components
+            this.playerRider.x = this.playerBody.x;
+            this.playerHandlebars.x = this.playerBody.x;
+            this.playerWheels[0].x = this.playerBody.x;
+            this.playerWheels[1].x = this.playerBody.x;
+        }
     }
 
     updateEnemies() {
@@ -610,6 +747,18 @@ class GameScene extends Phaser.Scene {
                 if (index > -1) {
                     this.enemies.splice(index, 1);
                 }
+            }
+        });
+    }
+
+    updateObstacles() {
+        this.obstacles.children.entries.forEach(obstacle => {
+            if (!obstacle.active) return;
+            
+            // Remove obstacles that are too far back
+            if (obstacle.y > this.cameras.main.height + 100) {
+                obstacle.setActive(false);
+                obstacle.setVisible(false);
             }
         });
     }
@@ -666,13 +815,23 @@ class GameScene extends Phaser.Scene {
     }
 
     updateWorld() {
-        // Move road lines
+        // Move road lines with sway effect
         this.roadLines.children.entries.forEach(line => {
             line.y += this.gameSpeed;
+            line.x = line.getData('originalX') || line.x;
+            line.x += this.roadSway * 0.02; // Subtle sway
+            
+            if (!line.getData('originalX')) {
+                line.setData('originalX', line.x);
+            }
+            
             if (line.y > this.cameras.main.height) {
                 line.y = -40;
             }
         });
+        
+        // Gradually reduce road sway
+        this.roadSway *= 0.95;
     }
 
     updateHUD() {
@@ -698,14 +857,65 @@ class GameScene extends Phaser.Scene {
             const distance = Phaser.Math.Distance.Between(playerX, playerY, enemy.x, enemy.y);
             
             if (distance < 35) {
-                this.playerHit();
+                this.playerHit(20);
                 this.knockOffEnemy(enemy);
+            }
+        });
+        
+        // Check player collision with obstacles
+        this.obstacles.children.entries.forEach(obstacle => {
+            if (!obstacle.active) return;
+            
+            const playerX = this.lanes[this.playerLane];
+            const playerY = this.cameras.main.height - 80;
+            
+            const distance = Phaser.Math.Distance.Between(playerX, playerY, obstacle.x, obstacle.y);
+            
+            const type = obstacle.getData('type');
+            let hitRange = 20;
+            
+            if (type === 'barricade') hitRange = 45;
+            else if (type === 'oil') hitRange = 25;
+            
+            if (distance < hitRange) {
+                this.handleObstacleCollision(obstacle, type);
             }
         });
     }
 
-    playerHit() {
-        this.health = Math.max(0, this.health - 20);
+    handleObstacleCollision(obstacle, type) {
+        obstacle.setActive(false);
+        obstacle.setVisible(false);
+        
+        switch (type) {
+            case 'cone':
+            case 'barricade':
+                // Instant game over
+                this.gameOver();
+                break;
+                
+            case 'oil':
+                // Apply slip effect and damage
+                this.applyOilSlip();
+                this.playerHit(10);
+                break;
+        }
+    }
+
+    applyOilSlip() {
+        this.isSlipping = true;
+        this.slipTimer = this.slipDuration;
+        
+        // Visual effect
+        this.cameras.main.flash(100, 100, 100, 100, false, (camera, progress) => {
+            if (progress === 1) {
+                // Effect complete
+            }
+        });
+    }
+
+    playerHit(damage = 20) {
+        this.health = Math.max(0, this.health - damage);
         
         // Screen flash
         this.cameras.main.flash(200, 255, 0, 0);
@@ -727,37 +937,97 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    spawnObstaclesTimer() {
+        this.obstacleSpawnTimer++;
+        const adjustedSpawnRate = Math.max(90, this.obstacleSpawnRate - (this.distance * 0.5));
+        
+        if (this.obstacleSpawnTimer >= adjustedSpawnRate) {
+            this.obstacleSpawnTimer = 0;
+            
+            // Spawn 0-2 obstacles
+            const numObstacles = Phaser.Math.Between(0, 2);
+            for (let i = 0; i < numObstacles; i++) {
+                this.spawnObstacle();
+            }
+        }
+    }
+
     gameOver() {
-        // Stop the game
+        if (this.isGameOver) return; // Prevent multiple calls
+        
+        console.log('Game Over triggered');
+        this.isGameOver = true;
+        
+        // Disable player controls
         this.physics.pause();
         
-        // Game over screen
+        // Save best distance
+        const bestDistance = localStorage.getItem('rashroad-best') || 0;
+        if (this.distance > bestDistance) {
+            localStorage.setItem('rashroad-best', Math.round(this.distance));
+        }
+        
+        // Show game over screen after delay
+        this.time.delayedCall(300, () => {
+            this.scene.start('GameOverScene', { 
+                distance: Math.round(this.distance),
+                bestDistance: Math.max(bestDistance, Math.round(this.distance))
+            });
+        });
+    }
+}
+
+class GameOverScene extends Phaser.Scene {
+    constructor() {
+        super({ key: 'GameOverScene' });
+    }
+
+    init(data) {
+        this.finalDistance = data.distance || 0;
+        this.bestDistance = data.bestDistance || 0;
+    }
+
+    create() {
         const { width, height } = this.cameras.main;
         
-        const gameOverBg = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8);
-        gameOverBg.setScrollFactor(0);
+        // Background
+        this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8);
         
-        this.add.text(width / 2, height / 2 - 50, 'GAME OVER', {
+        // Game Over title
+        this.add.text(width / 2, height / 2 - 100, 'GAME OVER', {
             fontSize: '48px',
             fontFamily: 'Arial Black',
             fill: '#ff0000'
-        }).setOrigin(0.5).setScrollFactor(0);
+        }).setOrigin(0.5);
         
-        this.add.text(width / 2, height / 2, `Distance: ${Math.round(this.distance)} km`, {
+        // Distance
+        this.add.text(width / 2, height / 2 - 30, `Distance: ${this.finalDistance} km`, {
             fontSize: '24px',
             fontFamily: 'Arial',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0);
+        }).setOrigin(0.5);
         
-        this.add.text(width / 2, height / 2 + 50, 'Press R to Restart', {
+        // Best distance
+        this.add.text(width / 2, height / 2 + 10, `Best: ${this.bestDistance} km`, {
             fontSize: '20px',
             fontFamily: 'Arial',
-            fill: '#00ff00'
-        }).setOrigin(0.5).setScrollFactor(0);
+            fill: '#ffff00'
+        }).setOrigin(0.5);
         
-        // Restart input
-        this.input.keyboard.once('keydown-R', () => {
-            this.scene.restart();
+        // Instructions
+        this.add.text(width / 2, height / 2 + 60, 'Press R to Restart or SPACE for Title', {
+            fontSize: '18px',
+            fontFamily: 'Arial',
+            fill: '#00ff00'
+        }).setOrigin(0.5);
+        
+        // Input
+        this.input.keyboard.on('keydown-R', () => {
+            this.scene.start('GameScene');
+        });
+        
+        this.input.keyboard.on('keydown-SPACE', () => {
+            this.scene.start('TitleScene');
         });
     }
 }
@@ -776,7 +1046,7 @@ const config = {
             debug: false
         }
     },
-    scene: [BootScene, GameScene]
+    scene: [TitleScene, GameScene, GameOverScene]
 };
 
 // Start the game
