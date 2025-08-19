@@ -48,6 +48,22 @@ All colors MUST be HSL.
     --game-success: 150 80% 50%;
 
     /* Gradients */
+    --gradient-game-bg: linear-gradient(135deg, hsl(220 15% 8%), hsl(230 20% 15%));
+    --gradient-neon: linear-gradient(45deg, hsl(290 100% 65%), hsl(195 100% 55%));
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --background: 60 100% 95%;
+      --foreground: 220 15% 8%;
+    }
+  }
+
+  /* Game loading animation */
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
     --gradient-road: linear-gradient(180deg, hsl(220 15% 8%), hsl(220 10% 25%));
     --gradient-neon: linear-gradient(45deg, hsl(290 100% 65%), hsl(195 100% 55%));
     --gradient-speed: linear-gradient(90deg, hsl(45 100% 60%), hsl(0 85% 60%));
