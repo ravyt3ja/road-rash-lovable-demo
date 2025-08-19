@@ -446,33 +446,36 @@ class GameScene extends Phaser.Scene {
     }
 
     changeLane(direction) {
+        console.log('changeLane called with direction:', direction);
+        console.log('Current playerLane:', this.playerLane);
+        console.log('isChangingLane:', this.isChangingLane);
+        console.log('laneChangeCooldown:', this.laneChangeCooldown);
+        
         const newLane = this.playerLane + direction;
         if (newLane >= 0 && newLane < 4) {
+            console.log('Valid lane change to:', newLane);
             this.playerLane = newLane;
             this.isChangingLane = true;
             this.laneChangeCooldown = 15; // frames
             const targetX = this.lanes[this.playerLane];
+            console.log('Target X position:', targetX);
             
-            // Animate lane change
-            this.tweens.add({
-                targets: this.player.children.entries,
-                x: targetX,
-                duration: 200,
-                ease: 'Power2',
-                onComplete: () => {
-                    this.isChangingLane = false;
-                }
-            });
+            // Stop any existing tweens first
+            this.tweens.killTweensOf(this.player.children.entries);
             
-            // Lean effect
-            const leanAngle = direction * 0.2;
-            this.tweens.add({
-                targets: this.player.children.entries,
-                rotation: leanAngle,
-                duration: 200,
-                ease: 'Power2',
-                yoyo: true
-            });
+            // Move each player component individually instead of using group
+            this.playerBody.x = targetX;
+            this.playerRider.x = targetX;
+            this.playerHandlebars.x = targetX;
+            this.playerWheels[0].x = targetX;
+            this.playerWheels[1].x = targetX;
+            
+            // Reset lane changing state immediately since we're not using animation
+            this.isChangingLane = false;
+            
+            console.log('Lane change completed');
+        } else {
+            console.log('Invalid lane change attempted');
         }
     }
 
