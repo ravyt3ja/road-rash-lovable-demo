@@ -113,6 +113,10 @@ class GameScene extends Phaser.Scene {
         this.isAttacking = false;
         this.attackCooldown = 0;
         
+        // Lane changing
+        this.isChangingLane = false;
+        this.laneChangeCooldown = 0;
+        
         // Enemy spawn
         this.enemySpawnTimer = 0;
         this.enemySpawnRate = 120; // frames between spawns
@@ -406,9 +410,12 @@ class GameScene extends Phaser.Scene {
     }
 
     handleInput() {
-        // Reduce attack cooldown
+        // Reduce cooldowns
         if (this.attackCooldown > 0) {
             this.attackCooldown--;
+        }
+        if (this.laneChangeCooldown > 0) {
+            this.laneChangeCooldown--;
         }
         
         // Speed control
@@ -425,10 +432,10 @@ class GameScene extends Phaser.Scene {
             }
         }
         
-        // Steering
-        if (this.cursors.left.isDown && this.playerLane > 0) {
+        // Steering - only allow lane change if not currently changing and cooldown is over
+        if (this.cursors.left.isDown && this.playerLane > 0 && !this.isChangingLane && this.laneChangeCooldown === 0) {
             this.changeLane(-1);
-        } else if (this.cursors.right.isDown && this.playerLane < 3) {
+        } else if (this.cursors.right.isDown && this.playerLane < 3 && !this.isChangingLane && this.laneChangeCooldown === 0) {
             this.changeLane(1);
         }
         
@@ -442,6 +449,8 @@ class GameScene extends Phaser.Scene {
         const newLane = this.playerLane + direction;
         if (newLane >= 0 && newLane < 4) {
             this.playerLane = newLane;
+            this.isChangingLane = true;
+            this.laneChangeCooldown = 15; // frames
             const targetX = this.lanes[this.playerLane];
             
             // Animate lane change
@@ -449,7 +458,10 @@ class GameScene extends Phaser.Scene {
                 targets: this.player.children.entries,
                 x: targetX,
                 duration: 200,
-                ease: 'Power2'
+                ease: 'Power2',
+                onComplete: () => {
+                    this.isChangingLane = false;
+                }
             });
             
             // Lean effect
