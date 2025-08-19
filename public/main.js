@@ -5,8 +5,6 @@ class BootScene extends Phaser.Scene {
     const g = this.add.graphics();
     // road
     g.fillStyle(0x2b2b2b,1).fillRect(0,0,256,256);
-    g.lineStyle(6,0xffff00,1);
-    for(let y=0;y<256;y+=32){ g.strokeLineShape(new Phaser.Geom.Line(128, y+6, 128, y+16)); }
     g.generateTexture('road',256,256); g.clear();
     // player bike (green)
     g.fillStyle(0x4caf50,1).fillRoundedRect(0,0,18,36,6);
@@ -39,7 +37,7 @@ class TitleScene extends Phaser.Scene{
   constructor(){ super('title'); }
   create(){
     this.add.tileSprite(180,320,360,640,'road').setAlpha(0.6);
-    this.add.text(180,260,'RashRoad',{fontFamily:'monospace',fontSize:'36px',color:'#fff'}).setOrigin(0.5);
+    this.add.text(180,260,'DIME DASH',{fontFamily:'monospace',fontSize:'36px',color:'#fff'}).setOrigin(0.5);
     this.add.text(180,320,'Press SPACE to start',{fontFamily:'monospace',fontSize:'16px',color:'#ffeb3b'}).setOrigin(0.5);
     this.input.keyboard.once('keydown-SPACE', ()=> this.scene.start('game'));
   }
@@ -110,7 +108,7 @@ class GameScene extends Phaser.Scene {
   spawnObstacle(){
     if (this.obstacles.countActive(true) >= 10) return;
     const w=this.scale.width;
-    const kind = Math.random()<0.7 ? 'cone' : 'oil';
+    const kind = Math.random()<0.85 ? 'cone' : 'oil';
     const key  = kind==='cone' ? 'cone' : 'oil';
     const y    = kind==='cone' ? -22 : -30;
     const o = this.obstacles.get(Phaser.Math.Between(70,w-70), y, key);
@@ -139,7 +137,7 @@ class GameScene extends Phaser.Scene {
     s.spawnRival -= dt; s.spawnCoin -= dt; s.spawnObs -= dt;
     if (s.spawnRival<=0){ this.spawnRival(); s.spawnRival = Phaser.Math.FloatBetween(0.5,1.2); }
     if (s.spawnCoin<=0){  this.spawnCoin();  s.spawnCoin  = Phaser.Math.FloatBetween(1.8,2.6); }
-    if (s.spawnObs<=0){   this.spawnObstacle(); s.spawnObs = Phaser.Math.FloatBetween(1.0,1.8); }
+    if (s.spawnObs<=0){   this.spawnObstacle(); s.spawnObs = Phaser.Math.FloatBetween(0.8,1.3); }
     // Rival movement & cleanup
     const rlist=this.rivals.getChildren();
     for (let i=0;i<rlist.length;i++){
