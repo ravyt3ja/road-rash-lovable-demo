@@ -129,6 +129,7 @@ class TitleScene extends Phaser.Scene {
         // Input - use keydown event to prevent repeated triggers
         this.input.keyboard.on('keydown-SPACE', () => {
             if (!this.spacePressed) {
+                console.log('SPACE pressed, starting GameScene...');
                 this.spacePressed = true;
                 this.scene.start('GameScene');
             }
@@ -198,13 +199,16 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
+        console.log('GameScene create() called');
         this.createWorld();
         this.createPlayer();
+        console.log('Player created at:', this.player.x, this.player.y);
         this.createControls();
         this.createHUD();
         this.createPools();
         this.setupCollisions();
         this.startGameLoop();
+        console.log('GameScene setup complete');
     }
 
     createWorld() {
@@ -286,18 +290,26 @@ class GameScene extends Phaser.Scene {
 
     createPlayer() {
         const { height } = this.cameras.main;
+        console.log('Creating player at lane:', this.playerLane, 'position:', this.lanes[this.playerLane]);
         
         // Player using cached texture
         this.player = this.physics.add.sprite(this.lanes[this.playerLane], height - 80, 'bike_player');
         this.player.setImmovable(true);
         this.player.body.setSize(30, 50);
+        this.player.setDepth(10); // Ensure player is above background
+        
+        console.log('Player sprite created:', this.player);
+        console.log('Player texture:', this.player.texture.key);
+        console.log('Player visible:', this.player.visible);
         
         // Additional visual elements
         this.playerRider = this.add.circle(this.lanes[this.playerLane], height - 85, 12, 0xff6b6b);
+        this.playerRider.setDepth(11);
         this.playerWheels = [
             this.add.circle(this.lanes[this.playerLane], height - 100, 8, 0x333333),
             this.add.circle(this.lanes[this.playerLane], height - 60, 8, 0x333333)
         ];
+        this.playerWheels.forEach(wheel => wheel.setDepth(9));
         
         // Attack range indicator
         this.attackRange = this.add.graphics();
