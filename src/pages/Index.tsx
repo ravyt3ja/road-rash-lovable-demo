@@ -1,29 +1,24 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 const Index = () => {
+  const [gameLoaded, setGameLoaded] = useState(false);
+
   useEffect(() => {
-    // Load Phaser and start the game
-    const loadGame = async () => {
-      // Add Phaser script if not already loaded
-      if (!(window as any).Phaser) {
-        const phaserScript = document.createElement('script');
-        phaserScript.src = 'https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js';
-        phaserScript.onload = () => {
-          // Load and execute the game script
-          const gameScript = document.createElement('script');
-          gameScript.src = '/main.js';
-          document.head.appendChild(gameScript);
-        };
-        document.head.appendChild(phaserScript);
+    // Since scripts are deferred in index.html, just wait for them to load
+    const checkGameReady = () => {
+      if ((window as any).Phaser && document.getElementById('game-container')) {
+        setGameLoaded(true);
+        // Hide the React loading indicator since Phaser will handle the game
+        const loading = document.getElementById('loading');
+        if (loading) {
+          loading.style.display = 'none';
+        }
       } else {
-        // Phaser already loaded, just load the game
-        const gameScript = document.createElement('script');
-        gameScript.src = '/main.js';
-        document.head.appendChild(gameScript);
+        setTimeout(checkGameReady, 100);
       }
     };
 
-    loadGame();
+    checkGameReady();
   }, []);
 
   return (
