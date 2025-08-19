@@ -38,7 +38,14 @@ class TitleScene extends Phaser.Scene{
   create(){
     this.add.tileSprite(180,320,360,640,'road').setAlpha(0.5);
     this.add.text(180,260,'ROAD CRASH MVP',{fontFamily:'monospace',fontSize:'32px',color:'#fff'}).setOrigin(0.5);
-    this.add.text(180,320,'Press SPACE to start',{fontFamily:'monospace',fontSize:'16px',color:'#ffeb3b'}).setOrigin(0.5);
+    const startText = this.add.text(180,320,'Press SPACE to start',{fontFamily:'monospace',fontSize:'16px',color:'#ffeb3b'}).setOrigin(0.5);
+    this.tweens.add({
+      targets: startText,
+      alpha: { from: 1, to: 0 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1
+    });
     this.input.keyboard.once('keydown-SPACE', ()=> this.scene.start('game'));
   }
 }
@@ -74,6 +81,9 @@ class GameScene extends Phaser.Scene {
     this.hud=this.add.text(10,10,'',{fontFamily:'monospace',fontSize:'14px',color:'#fff'}).setDepth(20);
     this.healthBg=this.add.rectangle(w-154,18,140,10,0x333333).setOrigin(0,0.5).setDepth(20);
     this.healthBar=this.add.rectangle(w-154,18,140,10,0x4caf50).setOrigin(0,0.5).setDepth(20);
+    // Controls hint
+    const instr = this.add.text(180,600,'←/→ arrows to dodge cones & collect coins',{fontFamily:'monospace',fontSize:'14px',color:'#ffeb3b'}).setOrigin(0.5);
+    this.tweens.add({ targets: instr, alpha: { from: 1, to: 0 }, duration: 800, delay: 5000 });
   }
   spawnRival(){
     if(this.rivals.countActive(true)>=12)return;
@@ -136,7 +146,14 @@ class GameOverScene extends Phaser.Scene{
     this.add.text(180,260,'GAME OVER',{fontFamily:'monospace',fontSize:'28px',color:'#fff'}).setOrigin(0.5);
     this.add.text(180,320,`Distance: ${this.d.dist} mi\nCoins: ${this.d.coins}`,
       {fontFamily:'monospace',fontSize:'16px',color:'#ccc',align:'center'}).setOrigin(0.5);
-    this.add.text(180,380,'Press ENTER to retry',{fontFamily:'monospace',fontSize:'14px',color:'#ffeb3b'}).setOrigin(0.5);
+    const retryText = this.add.text(180,380,'Press ENTER to retry',{fontFamily:'monospace',fontSize:'14px',color:'#ffeb3b'}).setOrigin(0.5);
+    this.tweens.add({
+      targets: retryText,
+      alpha: { from: 1, to: 0 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1
+    });
     this.input.keyboard.once('keydown-ENTER',()=>this.scene.start('game'));
     this.input.once('pointerdown',()=>this.scene.start('game'));
   }
