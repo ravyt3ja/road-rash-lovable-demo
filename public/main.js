@@ -1,7 +1,66 @@
 /**
- * RashRoad - Motorcycle Combat Racing Game
+ * RashRoad - Motorcycle Combat Racing Game (Performance Optimized)
  * A high-speed endless road game with melee combat mechanics
  */
+
+// Boot Scene for texture generation and caching
+class BootScene extends Phaser.Scene {
+    constructor() {
+        super({ key: 'BootScene' });
+    }
+
+    create() {
+        // Generate all graphics once and cache as textures
+        this.generateTextures();
+        
+        // Move to title scene
+        this.scene.start('TitleScene');
+    }
+
+    generateTextures() {
+        // Road texture
+        const roadGraphics = this.add.graphics();
+        roadGraphics.fillStyle(0x2a2a2a);
+        roadGraphics.fillRect(0, 0, 256, 256);
+        roadGraphics.generateTexture('road', 256, 256);
+        roadGraphics.destroy();
+
+        // Bike texture
+        const bikeGraphics = this.add.graphics();
+        bikeGraphics.fillStyle(0x8a2be2);
+        bikeGraphics.fillRect(0, 0, 30, 50);
+        bikeGraphics.generateTexture('bike_player', 30, 50);
+        bikeGraphics.destroy();
+
+        // Rival bike texture
+        const rivalGraphics = this.add.graphics();
+        rivalGraphics.fillStyle(0xff4444);
+        rivalGraphics.fillRect(0, 0, 25, 45);
+        rivalGraphics.generateTexture('bike_rival', 25, 45);
+        rivalGraphics.destroy();
+
+        // Cone texture
+        const coneGraphics = this.add.graphics();
+        coneGraphics.fillStyle(0xff8c00);
+        coneGraphics.fillTriangle(9, 0, 0, 18, 18, 18);
+        coneGraphics.generateTexture('cone', 18, 18);
+        coneGraphics.destroy();
+
+        // Barricade texture
+        const barricadeGraphics = this.add.graphics();
+        barricadeGraphics.fillStyle(0xff4444);
+        barricadeGraphics.fillRect(0, 0, 80, 16);
+        barricadeGraphics.generateTexture('barricade', 80, 16);
+        barricadeGraphics.destroy();
+
+        // Oil texture
+        const oilGraphics = this.add.graphics();
+        oilGraphics.fillStyle(0x1a1a1a);
+        oilGraphics.fillEllipse(18, 9, 36, 18);
+        oilGraphics.generateTexture('oil', 36, 18);
+        oilGraphics.destroy();
+    }
+}
 
 class TitleScene extends Phaser.Scene {
     constructor() {
@@ -86,8 +145,6 @@ class GameScene extends Phaser.Scene {
     initializeGameState() {
         // Game state
         this.player = null;
-        this.enemies = [];
-        this.obstacles = null;
         this.gameSpeed = 2;
         this.playerSpeed = 0;
         this.maxSpeed = 12;
@@ -113,40 +170,40 @@ class GameScene extends Phaser.Scene {
         this.isAttacking = false;
         this.attackCooldown = 0;
         
-        // Lane changing - use keydown events to prevent continuous triggering
+        // Lane changing
         this.isChangingLane = false;
         this.laneChangeCooldown = 0;
         this.leftPressed = false;
         this.rightPressed = false;
         
-        // Enemy spawn
+        // Spawn timers
         this.enemySpawnTimer = 0;
-        this.enemySpawnRate = 120; // frames between spawns
-        
-        // Obstacles
+        this.enemySpawnRate = 120;
         this.obstacleSpawnTimer = 0;
-        this.obstacleSpawnRate = 150; // frames between spawns
+        this.obstacleSpawnRate = 150;
         
         // Oil slip effect
         this.isSlipping = false;
         this.slipTimer = 0;
-        this.slipDuration = 48; // 0.8s at 60fps
+        this.slipDuration = 48;
         
         // Road sway
         this.roadSway = 0;
         this.maxRoadSway = 50;
+        this.roadTileSprite = null;
+
+        // Cached arrays for optimization
+        this.activeRivals = [];
+        this.activeObstacles = [];
     }
 
     create() {
-        console.log('GameScene created');
         this.createWorld();
         this.createPlayer();
         this.createControls();
         this.createHUD();
-        this.createEnemyPool();
-        this.createObstaclePool();
-        
-        // Start game loop
+        this.createPools();
+        this.setupCollisions();
         this.startGameLoop();
     }
 
@@ -158,10 +215,8 @@ class GameScene extends Phaser.Scene {
         bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1);
         bg.fillRect(0, 0, width, height);
         
-        // Road base - make it a tilesprite for sway effect
-        this.road = this.add.graphics();
-        this.road.fillStyle(0x2a2a2a);
-        this.road.fillRect(150, 0, 400, height);
+        // Road base as tileSprite for sway effect
+        this.roadTileSprite = this.add.tileSprite(350, height/2, 400, height, 'road');
         
         // Road lines (lane markers)
         this.roadLines = this.add.group();
@@ -186,7 +241,6 @@ class GameScene extends Phaser.Scene {
         this.rightEdge.fillStyle(0xffffff);
         this.rightEdge.fillRect(545, 0, 10, height);
         
-        // Side decorations
         this.createSideDecorations();
     }
 
@@ -195,13 +249,7 @@ class GameScene extends Phaser.Scene {
         
         // Left side buildings
         for (let i = 0; i < 5; i++) {
-            const building = this.add.rectangle(
-                75, 
-                i * 150, 
-                100, 
-                120, 
-                0x333333
-            );
+            const building = this.add.rectangle(75, i * 150, 100, 120, 0x333333);
             building.setStrokeStyle(2, 0x666666);
             
             // Windows
@@ -219,13 +267,7 @@ class GameScene extends Phaser.Scene {
         
         // Right side buildings
         for (let i = 0; i < 5; i++) {
-            const building = this.add.rectangle(
-                width - 75, 
-                i * 150, 
-                100, 
-                120, 
-                0x333333
-            );
+            const building = this.add.rectangle(width - 75, i * 150, 100, 120, 0x333333);
             building.setStrokeStyle(2, 0x666666);
             
             // Windows
@@ -245,36 +287,19 @@ class GameScene extends Phaser.Scene {
     createPlayer() {
         const { height } = this.cameras.main;
         
-        // Player bike body
-        this.player = this.add.group();
+        // Player using cached texture
+        this.player = this.physics.add.sprite(this.lanes[this.playerLane], height - 80, 'bike_player');
+        this.player.setImmovable(true);
+        this.player.body.setSize(30, 50);
         
-        // Main body
-        const body = this.add.rectangle(this.lanes[this.playerLane], height - 80, 30, 50, 0x8a2be2);
+        // Additional visual elements
+        this.playerRider = this.add.circle(this.lanes[this.playerLane], height - 85, 12, 0xff6b6b);
+        this.playerWheels = [
+            this.add.circle(this.lanes[this.playerLane], height - 100, 8, 0x333333),
+            this.add.circle(this.lanes[this.playerLane], height - 60, 8, 0x333333)
+        ];
         
-        // Wheels
-        const frontWheel = this.add.circle(this.lanes[this.playerLane], height - 100, 8, 0x333333);
-        const rearWheel = this.add.circle(this.lanes[this.playerLane], height - 60, 8, 0x333333);
-        
-        // Rider
-        const rider = this.add.circle(this.lanes[this.playerLane], height - 85, 12, 0xff6b6b);
-        
-        // Handlebars
-        const handlebars = this.add.rectangle(this.lanes[this.playerLane], height - 95, 20, 3, 0xcccccc);
-        
-        this.player.addMultiple([body, frontWheel, rearWheel, rider, handlebars]);
-        
-        // Store references
-        this.playerBody = body;
-        this.playerRider = rider;
-        this.playerHandlebars = handlebars;
-        this.playerWheels = [frontWheel, rearWheel];
-        
-        // Physics
-        this.physics.add.existing(body);
-        body.body.setImmovable(true);
-        body.body.setSize(30, 50);
-        
-        // Attack range indicator (invisible by default)
+        // Attack range indicator
         this.attackRange = this.add.graphics();
         this.attackRange.setVisible(false);
     }
@@ -285,7 +310,7 @@ class GameScene extends Phaser.Scene {
         this.punchKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
         this.kickKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
         
-        // Use keydown events for lane changing to prevent continuous triggering
+        // Use keydown events for lane changing
         this.input.keyboard.on('keydown-LEFT', () => {
             if (!this.leftPressed && !this.isGameOver) {
                 this.leftPressed = true;
@@ -310,19 +335,27 @@ class GameScene extends Phaser.Scene {
     }
 
     handleLaneChange(direction) {
-        console.log('handleLaneChange called with direction:', direction);
-        if (this.isChangingLane || this.laneChangeCooldown > 0) {
-            console.log('Lane change blocked - isChangingLane:', this.isChangingLane, 'cooldown:', this.laneChangeCooldown);
-            return;
-        }
+        if (this.isChangingLane || this.laneChangeCooldown > 0) return;
         
         const newLane = this.playerLane + direction;
         if (newLane >= 0 && newLane < 4) {
-            console.log('Valid lane change to:', newLane);
             this.changeLane(direction);
-        } else {
-            console.log('Invalid lane change attempted');
         }
+    }
+
+    changeLane(direction) {
+        this.isChangingLane = true;
+        this.playerLane += direction;
+        this.laneChangeCooldown = 20;
+        
+        const targetX = this.lanes[this.playerLane];
+        
+        // Instant lane change for performance
+        this.player.x = targetX;
+        this.playerRider.x = targetX;
+        this.playerWheels.forEach(wheel => wheel.x = targetX);
+        
+        this.isChangingLane = false;
     }
 
     createHUD() {
@@ -389,30 +422,51 @@ class GameScene extends Phaser.Scene {
         this.hudElements.healthBar.strokeRect(150, 40, 100, 15);
     }
 
-    createEnemyPool() {
-        this.enemyPool = this.physics.add.group({
-            maxSize: 10,
-            createCallback: (enemy) => {
-                enemy.setData('health', 50);
-                enemy.setData('speed', 0);
-                enemy.setData('lane', 0);
-                enemy.setData('aiState', 'normal');
-                enemy.setData('aiTimer', 0);
-            }
+    createPools() {
+        // Object pooling for rivals
+        this.rivals = this.physics.add.group({ 
+            defaultKey: 'bike_rival', 
+            maxSize: 12, 
+            runChildUpdate: false 
+        });
+        
+        // Object pooling for obstacles  
+        this.obstacles = this.physics.add.group({ 
+            maxSize: 10, 
+            runChildUpdate: false 
         });
     }
 
-    createObstaclePool() {
-        this.obstacles = this.physics.add.group({
-            maxSize: 15,
-            createCallback: (obstacle) => {
-                obstacle.setData('type', 'cone');
-            }
-        });
+    setupCollisions() {
+        // Single collider registration for performance
+        this.physics.add.overlap(this.player, this.rivals, this.handleRivalCollision, null, this);
+        this.physics.add.overlap(this.player, this.obstacles, this.handleObstacleCollision, null, this);
+    }
+
+    spawnEnemy() {
+        // Lazy spawn - cap concurrent entities
+        if (this.rivals.countActive(true) >= 6) return;
+        
+        const enemy = this.rivals.get();
+        if (!enemy) return;
+        
+        const lane = Phaser.Math.Between(0, 3);
+        const x = this.lanes[lane];
+        const y = -50;
+        
+        enemy.enableBody(true, x, y, true, true);
+        enemy.setSize(25, 45);
+        enemy.body.setVelocityY(this.gameSpeed * 60);
+        
+        // Set data
+        enemy.setData('health', 50);
+        enemy.setData('speed', Phaser.Math.Between(3, 6));
+        enemy.setData('lane', lane);
     }
 
     spawnObstacle() {
-        if (this.obstacles.countActive(true) >= 8) return;
+        // Lazy spawn - cap concurrent entities
+        if (this.obstacles.countActive(true) >= 6) return;
         
         const obstacle = this.obstacles.get();
         if (!obstacle) return;
@@ -425,479 +479,47 @@ class GameScene extends Phaser.Scene {
         let lane;
         do {
             lane = Phaser.Math.Between(0, 3);
-        } while (lane === this.playerLane && Math.random() < 0.7); // 70% chance to avoid player lane
+        } while (lane === this.playerLane && Math.random() < 0.7);
         
         const x = this.lanes[lane];
         const y = -50;
         
-        obstacle.setActive(true);
-        obstacle.setVisible(true);
-        obstacle.setPosition(x, y);
+        obstacle.enableBody(true, x, y, true, true);
+        obstacle.setTexture(type);
         obstacle.setData('type', type);
         obstacle.body.setVelocityY(this.gameSpeed * 60);
         
-        // Clear previous graphics
-        obstacle.clear();
-        
-        // Draw based on type
+        // Set proper hitbox based on type
         switch (type) {
             case 'cone':
-                // Triangle cone
-                obstacle.fillStyle(0xff8c00);
-                obstacle.fillTriangle(0, -9, -9, 9, 9, 9);
                 obstacle.setSize(18, 18);
                 break;
-                
             case 'barricade':
-                // Horizontal block
-                obstacle.fillStyle(0xff4444);
-                obstacle.fillRect(-40, -8, 80, 16);
                 obstacle.setSize(80, 16);
                 break;
-                
             case 'oil':
-                // Dark oval
-                obstacle.fillStyle(0x1a1a1a);
-                obstacle.fillEllipse(0, 0, 36, 18);
                 obstacle.setSize(36, 18);
                 break;
         }
-        
-        // Set proper hitbox
-        obstacle.body.setOffset(-obstacle.width/2, -obstacle.height/2);
     }
 
-    spawnEnemy() {
-        if (this.enemyPool.countActive(true) >= 6) return;
-        
-        const enemy = this.enemyPool.get();
-        if (!enemy) return;
-        
-        const lane = Phaser.Math.Between(0, 3);
-        const x = this.lanes[lane];
-        const y = -50;
-        
-        // Configure enemy
-        enemy.setActive(true);
-        enemy.setVisible(true);
-        enemy.setPosition(x, y);
-        enemy.setSize(25, 45);
-        enemy.body.setVelocityY(this.gameSpeed * 60);
-        
-        // Visual appearance
-        enemy.clear();
-        enemy.fillStyle(0xff4444);
-        enemy.fillRect(-12.5, -22.5, 25, 45);
-        
-        // Rider
-        enemy.fillStyle(0x444444);
-        enemy.fillCircle(0, -10, 10);
-        
-        // Reset data
-        enemy.setData('health', 50);
-        enemy.setData('speed', Phaser.Math.Between(3, 6));
-        enemy.setData('lane', lane);
-        enemy.setData('aiState', 'normal');
-        enemy.setData('aiTimer', 0);
-        
-        this.enemies.push(enemy);
+    handleRivalCollision(player, rival) {
+        this.playerHit(15);
+        rival.disableBody(true, true); // Pool instead of destroy
     }
 
-    startGameLoop() {
-        // Main game timer
-        this.time.addEvent({
-            delay: 16, // ~60 FPS
-            callback: this.updateGame,
-            callbackScope: this,
-            loop: true
-        });
-    }
-
-    updateGame() {
-        if (this.isGameOver) return; // Early return if game is over
-        
-        this.handleInput();
-        this.updatePlayer();
-        this.updateEnemies();
-        this.updateObstacles();
-        this.updateWorld();
-        this.updateHUD();
-        this.handleCollisions();
-        this.spawnEnemiesTimer();
-        this.spawnObstaclesTimer();
-        
-        // Update distance
-        this.distance += this.gameSpeed * 0.1;
-        
-        // Increase game speed over time
-        if (this.distance > 100 && this.gameSpeed < 8) {
-            this.gameSpeed += 0.002;
-        }
-    }
-
-    handleInput() {
-        // Reduce cooldowns
-        if (this.attackCooldown > 0) {
-            this.attackCooldown--;
-        }
-        if (this.laneChangeCooldown > 0) {
-            this.laneChangeCooldown--;
-        }
-        if (this.slipTimer > 0) {
-            this.slipTimer--;
-            if (this.slipTimer === 0) {
-                this.isSlipping = false;
-            }
-        }
-        
-        // Speed control (use isDown for continuous input)
-        if (this.cursors.up.isDown) {
-            this.playerSpeed = Math.min(this.playerSpeed + this.acceleration, this.maxSpeed);
-        } else if (this.cursors.down.isDown) {
-            this.playerSpeed = Math.max(this.playerSpeed - this.acceleration * 2, -this.maxSpeed * 0.5);
-        } else {
-            // Apply friction
-            if (this.playerSpeed > 0) {
-                this.playerSpeed = Math.max(this.playerSpeed - this.friction, 0);
-            } else if (this.playerSpeed < 0) {
-                this.playerSpeed = Math.min(this.playerSpeed + this.friction, 0);
-            }
-        }
-        
-        // Combat (use isDown for combat keys)
-        if ((this.punchKey.isDown || this.kickKey.isDown) && this.attackCooldown === 0) {
-            this.performAttack(this.punchKey.isDown ? 'punch' : 'kick');
-        }
-    }
-
-    changeLane(direction) {
-        console.log('changeLane called with direction:', direction);
-        
-        const newLane = this.playerLane + direction;
-        if (newLane >= 0 && newLane < 4) {
-            console.log('Valid lane change to:', newLane);
-            this.playerLane = newLane;
-            this.isChangingLane = true;
-            this.laneChangeCooldown = 30; // Increased cooldown
-            const targetX = this.lanes[this.playerLane];
-            
-            // Move player components instantly
-            this.playerBody.x = targetX;
-            this.playerRider.x = targetX;
-            this.playerHandlebars.x = targetX;
-            this.playerWheels[0].x = targetX;
-            this.playerWheels[1].x = targetX;
-            
-            // Apply road sway effect
-            this.roadSway += direction * 10;
-            this.roadSway = Phaser.Math.Clamp(this.roadSway, -this.maxRoadSway, this.maxRoadSway);
-            
-            // Reset lane changing state after a short delay
-            this.time.delayedCall(200, () => {
-                this.isChangingLane = false;
-            });
-            
-            console.log('Lane change completed');
-        }
-    }
-
-    performAttack(type) {
-        this.isAttacking = true;
-        this.attackCooldown = type === 'punch' ? 30 : 45; // frames
-        
-        // Visual feedback
-        this.showAttackRange(type);
-        
-        // Check for enemies in range
-        this.checkAttackHit(type);
-        
-        // Reset attack state
-        this.time.delayedCall(300, () => {
-            this.isAttacking = false;
-        });
-    }
-
-    showAttackRange(type) {
-        this.attackRange.clear();
-        this.attackRange.setVisible(true);
-        
-        const playerX = this.lanes[this.playerLane];
-        const playerY = this.cameras.main.height - 80;
-        
-        // Attack arc
-        const range = type === 'punch' ? 40 : 60;
-        const arc = type === 'punch' ? Math.PI / 3 : Math.PI / 2;
-        
-        this.attackRange.fillStyle(0xff0000, 0.3);
-        this.attackRange.slice(playerX, playerY - 20, range, -arc/2, arc/2, false);
-        this.attackRange.fillPath();
-        
-        // Hide after animation
-        this.time.delayedCall(200, () => {
-            this.attackRange.setVisible(false);
-        });
-    }
-
-    checkAttackHit(type) {
-        const playerX = this.lanes[this.playerLane];
-        const playerY = this.cameras.main.height - 80;
-        const range = type === 'punch' ? 40 : 60;
-        const damage = type === 'punch' ? 25 : 40;
-        
-        this.enemies.forEach(enemy => {
-            if (!enemy.active) return;
-            
-            const distance = Phaser.Math.Distance.Between(playerX, playerY, enemy.x, enemy.y);
-            
-            if (distance <= range && enemy.y < playerY + 30 && enemy.y > playerY - 100) {
-                this.hitEnemy(enemy, damage);
-            }
-        });
-    }
-
-    hitEnemy(enemy, damage) {
-        const currentHealth = enemy.getData('health');
-        const newHealth = currentHealth - damage;
-        enemy.setData('health', newHealth);
-        
-        // Visual hit effect
-        this.tweens.add({
-            targets: enemy,
-            scaleX: 1.2,
-            scaleY: 1.2,
-            duration: 100,
-            yoyo: true
-        });
-        
-        // Knockback
-        enemy.body.setVelocityX(Phaser.Math.Between(-100, 100));
-        
-        if (newHealth <= 0) {
-            this.knockOffEnemy(enemy);
-        }
-    }
-
-    knockOffEnemy(enemy) {
-        // Spin and slide effect
-        this.tweens.add({
-            targets: enemy,
-            rotation: Math.PI * 4,
-            x: enemy.x + Phaser.Math.Between(-200, 200),
-            duration: 1000,
-            ease: 'Power2'
-        });
-        
-        this.tweens.add({
-            targets: enemy,
-            alpha: 0,
-            duration: 1000,
-            onComplete: () => {
-                enemy.setActive(false);
-                enemy.setVisible(false);
-                const index = this.enemies.indexOf(enemy);
-                if (index > -1) {
-                    this.enemies.splice(index, 1);
-                }
-            }
-        });
-    }
-
-    updatePlayer() {
-        // Update physics based on player speed
-        const speedMultiplier = 1 + (this.playerSpeed / this.maxSpeed);
-        this.gameSpeed = Math.max(2, 2 * speedMultiplier);
-        
-        // Wheel rotation
-        this.playerWheels.forEach(wheel => {
-            wheel.rotation += this.playerSpeed * 0.1;
-        });
-        
-        // Engine sound simulation (visual only)
-        if (this.playerSpeed > 8) {
-            this.cameras.main.shake(1, 1);
-        }
-        
-        // Apply oil slip effect
-        if (this.isSlipping) {
-            const slipForce = Phaser.Math.Between(-30, 30);
-            this.playerBody.x += slipForce * 0.1;
-            
-            // Keep player within road bounds
-            this.playerBody.x = Phaser.Math.Clamp(this.playerBody.x, 180, 520);
-            
-            // Update other player components
-            this.playerRider.x = this.playerBody.x;
-            this.playerHandlebars.x = this.playerBody.x;
-            this.playerWheels[0].x = this.playerBody.x;
-            this.playerWheels[1].x = this.playerBody.x;
-        }
-    }
-
-    updateEnemies() {
-        this.enemies.forEach(enemy => {
-            if (!enemy.active) return;
-            
-            this.updateEnemyAI(enemy);
-            
-            // Remove enemies that are too far back
-            if (enemy.y > this.cameras.main.height + 100) {
-                enemy.setActive(false);
-                enemy.setVisible(false);
-                const index = this.enemies.indexOf(enemy);
-                if (index > -1) {
-                    this.enemies.splice(index, 1);
-                }
-            }
-        });
-    }
-
-    updateObstacles() {
-        this.obstacles.children.entries.forEach(obstacle => {
-            if (!obstacle.active) return;
-            
-            // Remove obstacles that are too far back
-            if (obstacle.y > this.cameras.main.height + 100) {
-                obstacle.setActive(false);
-                obstacle.setVisible(false);
-            }
-        });
-    }
-
-    updateEnemyAI(enemy) {
-        const aiTimer = enemy.getData('aiTimer') + 1;
-        enemy.setData('aiTimer', aiTimer);
-        
-        const aiState = enemy.getData('aiState');
-        const currentLane = enemy.getData('lane');
-        
-        // Simple AI behavior
-        if (aiTimer > 120) { // Every 2 seconds
-            enemy.setData('aiTimer', 0);
-            
-            const playerDistance = Math.abs(enemy.y - (this.cameras.main.height - 80));
-            
-            if (playerDistance < 150 && Math.random() < 0.3) {
-                // Try to ram player
-                const targetLane = this.playerLane;
-                if (targetLane !== currentLane) {
-                    this.moveEnemyToLane(enemy, targetLane);
-                }
-                enemy.setData('aiState', 'aggressive');
-            } else if (Math.random() < 0.2) {
-                // Random lane change
-                const newLane = Phaser.Math.Between(0, 3);
-                if (newLane !== currentLane) {
-                    this.moveEnemyToLane(enemy, newLane);
-                }
-                enemy.setData('aiState', 'normal');
-            }
-        }
-        
-        // Adjust speed based on AI state
-        const baseSpeed = this.gameSpeed;
-        if (aiState === 'aggressive') {
-            enemy.body.setVelocityY((baseSpeed + 2) * 60);
-        } else {
-            enemy.body.setVelocityY((baseSpeed + Phaser.Math.Between(-1, 1)) * 60);
-        }
-    }
-
-    moveEnemyToLane(enemy, targetLane) {
-        const targetX = this.lanes[targetLane];
-        enemy.setData('lane', targetLane);
-        
-        this.tweens.add({
-            targets: enemy,
-            x: targetX,
-            duration: 500,
-            ease: 'Power2'
-        });
-    }
-
-    updateWorld() {
-        // Move road lines with sway effect
-        this.roadLines.children.entries.forEach(line => {
-            line.y += this.gameSpeed;
-            line.x = line.getData('originalX') || line.x;
-            line.x += this.roadSway * 0.02; // Subtle sway
-            
-            if (!line.getData('originalX')) {
-                line.setData('originalX', line.x);
-            }
-            
-            if (line.y > this.cameras.main.height) {
-                line.y = -40;
-            }
-        });
-        
-        // Gradually reduce road sway
-        this.roadSway *= 0.95;
-    }
-
-    updateHUD() {
-        // Speed in MPH
-        const mph = Math.round((this.gameSpeed + this.playerSpeed) * 8);
-        this.hudElements.speedValue.setText(`${mph} MPH`);
-        
-        // Distance in km
-        this.hudElements.distanceValue.setText(`${Math.round(this.distance)} km`);
-        
-        // Update health bar
-        this.updateHealthBar();
-    }
-
-    handleCollisions() {
-        // Check player collision with enemies
-        this.enemies.forEach(enemy => {
-            if (!enemy.active) return;
-            
-            const playerX = this.lanes[this.playerLane];
-            const playerY = this.cameras.main.height - 80;
-            
-            const distance = Phaser.Math.Distance.Between(playerX, playerY, enemy.x, enemy.y);
-            
-            if (distance < 35) {
-                this.playerHit(20);
-                this.knockOffEnemy(enemy);
-            }
-        });
-        
-        // Check player collision with obstacles
-        this.obstacles.children.entries.forEach(obstacle => {
-            if (!obstacle.active) return;
-            
-            const playerX = this.lanes[this.playerLane];
-            const playerY = this.cameras.main.height - 80;
-            
-            const distance = Phaser.Math.Distance.Between(playerX, playerY, obstacle.x, obstacle.y);
-            
-            const type = obstacle.getData('type');
-            let hitRange = 20;
-            
-            if (type === 'barricade') hitRange = 45;
-            else if (type === 'oil') hitRange = 25;
-            
-            if (distance < hitRange) {
-                this.handleObstacleCollision(obstacle, type);
-            }
-        });
-    }
-
-    handleObstacleCollision(obstacle, type) {
-        obstacle.setActive(false);
-        obstacle.setVisible(false);
+    handleObstacleCollision(player, obstacle) {
+        const type = obstacle.getData('type');
         
         switch (type) {
             case 'cone':
             case 'barricade':
-                // Instant game over
                 this.gameOver();
                 break;
-                
             case 'oil':
-                // Apply slip effect and damage
                 this.applyOilSlip();
                 this.playerHit(10);
+                obstacle.disableBody(true, true);
                 break;
         }
     }
@@ -906,45 +528,120 @@ class GameScene extends Phaser.Scene {
         this.isSlipping = true;
         this.slipTimer = this.slipDuration;
         
-        // Visual effect
-        this.cameras.main.flash(100, 100, 100, 100, false, (camera, progress) => {
-            if (progress === 1) {
-                // Effect complete
-            }
-        });
+        this.cameras.main.flash(100, 100, 100, 100);
     }
 
     playerHit(damage = 20) {
         this.health = Math.max(0, this.health - damage);
-        
-        // Screen flash
         this.cameras.main.flash(200, 255, 0, 0);
         
-        // Check game over
         if (this.health <= 0) {
             this.gameOver();
         }
     }
 
-    spawnEnemiesTimer() {
+    updateMovement() {
+        if (this.isGameOver) return;
+        
+        // Handle acceleration/deceleration
+        if (this.cursors.up.isDown) {
+            this.playerSpeed = Math.min(this.maxSpeed, this.playerSpeed + this.acceleration);
+        } else if (this.cursors.down.isDown) {
+            this.playerSpeed = Math.max(0, this.playerSpeed - this.acceleration * 2);
+        } else {
+            this.playerSpeed = Math.max(0, this.playerSpeed - this.friction);
+        }
+        
+        // Update game speed based on player speed
+        this.gameSpeed = 2 + (this.playerSpeed * 0.5);
+        
+        // Update road sway only when turning
+        if (this.leftPressed || this.rightPressed) {
+            const swayAmount = this.leftPressed ? -3 : 3;
+            this.roadSway = Phaser.Math.Clamp(this.roadSway + swayAmount, -this.maxRoadSway, this.maxRoadSway);
+            this.roadTileSprite.tilePositionX = this.roadSway;
+        } else {
+            // Gradually return to center
+            this.roadSway *= 0.95;
+            this.roadTileSprite.tilePositionX = this.roadSway;
+        }
+        
+        // Update distance
+        this.distance += this.gameSpeed * 0.01;
+    }
+
+    updateEntities() {
+        // Cache active entities for performance
+        this.activeRivals = this.rivals.getChildren().filter(rival => rival.active);
+        this.activeObstacles = this.obstacles.getChildren().filter(obstacle => obstacle.active);
+        
+        // Use for loops instead of callbacks for better performance
+        for (let i = this.activeRivals.length - 1; i >= 0; i--) {
+            const rival = this.activeRivals[i];
+            
+            // Cull off-screen updates
+            if (rival.y > 700 || rival.y < -80) {
+                rival.disableBody(true, true);
+                continue;
+            }
+            
+            rival.y += this.gameSpeed * 2;
+        }
+        
+        for (let i = this.activeObstacles.length - 1; i >= 0; i--) {
+            const obstacle = this.activeObstacles[i];
+            
+            // Cull off-screen updates  
+            if (obstacle.y > 700 || obstacle.y < -80) {
+                obstacle.disableBody(true, true);
+                continue;
+            }
+            
+            obstacle.y += this.gameSpeed * 2;
+        }
+        
+        // Update road lines
+        this.roadLines.children.entries.forEach(line => {
+            line.y += this.gameSpeed * 2;
+            if (line.y > 700) {
+                line.y -= 800;
+            }
+        });
+    }
+
+    updateCooldowns() {
+        if (this.laneChangeCooldown > 0) {
+            this.laneChangeCooldown--;
+        }
+        
+        if (this.attackCooldown > 0) {
+            this.attackCooldown--;
+        }
+        
+        if (this.isSlipping && this.slipTimer > 0) {
+            this.slipTimer--;
+            if (this.slipTimer <= 0) {
+                this.isSlipping = false;
+            }
+        }
+    }
+
+    updateSpawning() {
+        // Enemy spawning
         this.enemySpawnTimer++;
         if (this.enemySpawnTimer >= this.enemySpawnRate) {
             this.enemySpawnTimer = 0;
             this.spawnEnemy();
-            
-            // Increase spawn rate over time
             this.enemySpawnRate = Math.max(60, this.enemySpawnRate - 0.5);
         }
-    }
-
-    spawnObstaclesTimer() {
+        
+        // Obstacle spawning
         this.obstacleSpawnTimer++;
         const adjustedSpawnRate = Math.max(90, this.obstacleSpawnRate - (this.distance * 0.5));
         
         if (this.obstacleSpawnTimer >= adjustedSpawnRate) {
             this.obstacleSpawnTimer = 0;
             
-            // Spawn 0-2 obstacles
             const numObstacles = Phaser.Math.Between(0, 2);
             for (let i = 0; i < numObstacles; i++) {
                 this.spawnObstacle();
@@ -952,13 +649,36 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    updateHUD() {
+        // Update speed display
+        const speedMPH = Math.round(this.playerSpeed * 10);
+        this.hudElements.speedValue.setText(`${speedMPH} MPH`);
+        
+        // Update distance
+        this.hudElements.distanceValue.setText(`${Math.round(this.distance)} km`);
+        
+        // Update health bar
+        this.updateHealthBar();
+    }
+
+    update() {
+        if (this.isGameOver) return;
+        
+        this.updateMovement();
+        this.updateEntities();
+        this.updateCooldowns();
+        this.updateSpawning();
+        this.updateHUD();
+    }
+
+    startGameLoop() {
+        // Game is now running
+    }
+
     gameOver() {
-        if (this.isGameOver) return; // Prevent multiple calls
+        if (this.isGameOver) return;
         
-        console.log('Game Over triggered');
         this.isGameOver = true;
-        
-        // Disable player controls
         this.physics.pause();
         
         // Save best distance
@@ -1032,22 +752,45 @@ class GameOverScene extends Phaser.Scene {
     }
 }
 
-// Game Configuration
+// Optimized Game Configuration
 const config = {
-    type: Phaser.AUTO,
-    width: 700,
-    height: 600,
+    type: Phaser.WEBGL,               // Force WebGL for performance
+    powerPreference: 'high-performance',
+    width: 360,                       // Lower internal resolution
+    height: 640,
+    zoom: 1.3333,                     // Scale up visually to ~480×853
     parent: 'game-container',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#111',
+    render: { 
+        pixelArt: true, 
+        antialias: false, 
+        roundPixels: true 
+    },
     physics: {
         default: 'arcade',
         arcade: {
             gravity: { y: 0 },
+            fps: 60,                  // Fixed stable step
+            useTree: true,            // Spatial index for fewer collision checks
             debug: false
         }
     },
-    scene: [TitleScene, GameScene, GameOverScene]
+    fps: { 
+        target: 60, 
+        min: 30, 
+        forceSetTimeOut: false 
+    },
+    scene: [BootScene, TitleScene, GameScene, GameOverScene]
 };
 
-// Start the game
-const game = new Phaser.Game(config);
+// Start the game when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    // Hide loading screen
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.classList.add('hidden');
+    }
+    
+    // Start the game
+    const game = new Phaser.Game(config);
+});
